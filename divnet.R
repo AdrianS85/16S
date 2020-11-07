@@ -5,10 +5,10 @@ colnames(metadata_analysis$metadata)
 divnet_analysis <- list(
   'import_dir' = list(
     'feat' = '/home/adrian/Desktop/nx_temp/nx_data_q/', 
-    'tree' = '/home/adrian/Desktop/qiime/nx_phylogeny/',
-    'tax' = '/home/adrian/Desktop/qiime/nx_taxonomy/',
+    'tree' = '/home/adrian/Desktop/nx_temp/nx_phylogeny/',
+    'tax' = '/home/adrian/Desktop/nx_temp/nx_taxonomy/',
     'metadata' = '/home/adrian/Desktop/qiime/qiime_metadata_nf.tsv'),
-  'cols_to_analyze' = c('group', 'plasma_iron_ug_dl'),
+  'formulas' = list('group' = as.formula("~ group")),
   'cores' = 3,
   'tuning' = 'fast',
   'divnet_dir' = 'divnet',
@@ -19,46 +19,42 @@ divnet_analysis <- list(
 dir.create(divnet_analysis$divnet_dir)
 dir.create(divnet_analysis$vis_dir)
 
-### !!! add sklearn!
+### !!! add sklearn!, create and use non-filtered taxonomies
 divnet_analysis$datasets <- list(
   'dada2' = qiime2R::qza_to_phyloseq(
     features = paste0(divnet_analysis$import_dir$feat, 'dada2.FeatureTableFrequency.qza'), 
     tree = paste0(divnet_analysis$import_dir$tree, 'sepp_dada2.PhylogenyRooted.qza'),
-    taxonomy = paste0(divnet_analysis$import_dir$tax, 'for_divnet_vsearch_filtered_sepp_dada2.FeatureDataTaxonomy.qza'),
+    taxonomy = paste0(divnet_analysis$import_dir$tax, 'vsearch_filtered_sepp_dada2.FeatureDataTaxonomy.qza'),
     metadata = divnet_analysis$import_dir$metadata),
   'deblur' = qiime2R::qza_to_phyloseq(
     features = paste0(divnet_analysis$import_dir$feat, 'deblur.FeatureTableFrequency.qza'), 
     tree = paste0(divnet_analysis$import_dir$tree, 'sepp_deblur.PhylogenyRooted.qza'),
-    taxonomy = paste0(divnet_analysis$import_dir$tax, 'for_divnet_vsearch_filtered_sepp_deblur.FeatureDataTaxonomy.qza'),
+    taxonomy = paste0(divnet_analysis$import_dir$tax, 'vsearch_filtered_sepp_deblur.FeatureDataTaxonomy.qza'),
     metadata = divnet_analysis$import_dir$metadata),
   'deblur_s' = qiime2R::qza_to_phyloseq(
     features = paste0(divnet_analysis$import_dir$feat, 'deblur_singletons.FeatureTableFrequency.qza'), 
     tree = paste0(divnet_analysis$import_dir$tree, 'sepp_deblur_singletons.PhylogenyRooted.qza'),
-    taxonomy = paste0(divnet_analysis$import_dir$tax, 'for_divnet_vsearch_filtered_sepp_deblur_singletons.FeatureDataTaxonomy.qza'),
+    taxonomy = paste0(divnet_analysis$import_dir$tax, 'vsearch_filtered_sepp_deblur_singletons.FeatureDataTaxonomy.qza'),
     metadata = divnet_analysis$import_dir$metadata)
 )
 
 
-
-
+# class(divnet_analysis$datasets$dada2)
+# phyloseq::sample_data(divnet_analysis$datasets$dada2)
 
 
 divnet_analysis$divnet <- purrr::map(
   .x = divnet_analysis$datasets,
   .f = function(dataset){
 
-    boop <- purrr::map(
-      .x = divnet_analysis$cols_to_analyze,
-      .f = function(col_name){
+    purrr::map2(
+      .x = divnet_analysis$formulas,
+      .y = names(divnet_analysis$formulas),
+      .f = function(formula_, cov){
 
-        DivNet::divnet(X = col_name, ncores = divnet_analysis$cores, tuning = divnet_analysis$tuning, W = dataset)
+        DivNet::divnet(W = dataset, X = cov, ncores = divnet_analysis$cores, tuning = divnet_analysis$tuning)
       })
-
-    names(boop) <- divnet_analysis$cols_to_analyze
-
-    return(boop)
-  })
-names(divnet_analysis$divnet) <- names(divnet_analysis$datasets)
+})
 
 
 

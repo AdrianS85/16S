@@ -63,3 +63,83 @@ wrapper_get_all_values_for_seqences <- function(list_of_original_datasets, df_wi
 }
 
 
+
+
+
+
+
+
+
+
+calculations_of_metadata_plots <- function(prepared_metadata, dataset_name, full_metadata, full_metadata_groupid_col, full_metadata_sampleid_col = 'SampleID'){
+  
+  prepared_metadata <- as.data.frame(scale(prepared_metadata, center = TRUE, scale = TRUE))
+  
+  prepared_metadata <- prepared_metadata[ order(rownames(prepared_metadata)), ]
+  
+  
+  
+  habillage <- subset(
+    x = full_metadata, 
+    subset = full_metadata[[full_metadata_sampleid_col]] %in% rownames(prepared_metadata),
+    select = c(full_metadata_sampleid_col, full_metadata_groupid_col))
+  
+  habillage[[full_metadata_sampleid_col]] <- as.character(habillage[[full_metadata_sampleid_col]])
+  habillage[[full_metadata_groupid_col]] <- as.character(habillage[[full_metadata_groupid_col]])
+  
+  habillage <- habillage[order(habillage[[full_metadata_sampleid_col]]), ]
+  
+  assertthat::assert_that(are_vectors_the_same(list(habillage[[full_metadata_sampleid_col]], rownames(prepared_metadata))))
+  
+  habillage <- habillage[[full_metadata_groupid_col]]
+  
+  
+  
+  cor <- Hmisc::rcorr(as.matrix(prepared_metadata))
+  pca_scaled <- prcomp(t(prepared_metadata), scale = TRUE)
+  pca_scaled_samples <- prcomp(prepared_metadata, scale = TRUE)
+  
+
+  
+  dir <- paste0(metadata_analysis$dir, '/', dataset_name, '/')
+  
+  dir.create(dir)
+  
+  return(list('data' = prepared_metadata, 'habillage' = habillage, 'cor' = cor, 'pca_scaled' = pca_scaled, 'pca_scaled_samples' = pca_scaled_samples, 'dir' = dir))
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+merge_measures <- function(prepared_metadata, cols_to_merge_char_vec, merged_col_name)
+{
+  to_merge <- subset(x = prepared_metadata, select = cols_to_merge_char_vec)
+  
+  prepared_metadata[[merged_col_name]] <- apply(X = to_merge, MARGIN = 1, FUN = median)
+  
+  prepared_metadata <- dplyr::select(prepared_metadata, -cols_to_merge_char_vec)
+
+  return(prepared_metadata)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
