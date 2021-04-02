@@ -7,20 +7,51 @@
 
 library(Hmisc)
 source('functions.R')
+load('DESeq_analysis.save')
 
 ### 'formulas' element has actual formula in the name and contrasts as list elements. Variable of interest needs to be the last element of the formula
-### !!! we should probably also analyze taxonomic tables?
-DESeq_analysis <- list('freq_dir' = '/home/adrian/Desktop/nx_temp/nx_data_q/',
+DESeq_analysis <- list('freq_dir' = '/home/adrian/Desktop/qiime/full_data_server/nx_data_q/',
                        'freq_asv_patt' = '^filtered.*FeatureTable.*',
                        'freq_tax_patt' = '^lev_.*FeatureTable.*',
-                       'tax_dir' = '/home/adrian/Desktop/nx_temp/nx_taxonomy/',
+                       'tax_dir' = '/home/adrian/Desktop/qiime/full_data_server/nx_taxonomy/',
                        'tax_patt' = '^vsearch.*Taxonomy\\.qza$',
-                       'metadata' = qiime2R::read_q2metadata(file = '../qiime_metadata_nf.tsv'),
+                       'metadata' = read.delim(file = '../metadata_enhanced.tsv', stringsAsFactors = T),
                        'formulas' = 
-                         list('~ group' = list(
-                           'f_d_m' = c('group', 'fe_dextran_muscle', 'anemia'),
-                           's_f_l_o' = c('group', 'siderai_fe_liposomal_oral', 'anemia'))),
+                         list(
+                           '~mother + group' = list(
+                             'dextran_muscle' = c('group', 'fe_dextran_muscle', 'anemia'),
+                             'sideral' = c('group', 'sideral_fe_liposomal_oral', 'anemia'),
+                             'dextran_oral' = c('group', 'nanofe_dextran_50nm_oral', 'anemia'),
+                             'phospholipid' = c('group', 'nanofe_phospholipid_70nm_oral', 'anemia'),
+                             'feso4' = c('group', 'feso4_oral', 'anemia'),
+                             'synomag' = c('group', 'nanofe_synomag_30nm_oral', 'anemia')),
+                           '~mother + anemia_v_treatment' = list(
+                             'anemia_v_treatment' = c('anemia_v_treatment', 'treatment', 'anemia')),
+                           '~mother + dex_muscle_v_treatment' = list(
+                             'dextran_muscle' = c('dex_muscle_v_treatment', 'non_dextran_muscle_treatment', 'fe_dextran_muscle'))),
+                       'sample_to_remove_for_formulas' = 
+                         list(
+                           '~mother + group' = NA,
+                           '~mother + anemia_v_treatment' = NA,
+                           '~mother + dex_muscle_v_treatment' = list('sampleid' = c('A1', 'A2', 'A3', 'A4', 'A5'))),
                        'seq_col_name' = 'seqs')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -34,9 +65,13 @@ DESeq_analysis$tax_merged <- prepare_merged_taxonomies(list_tax_files = DESeq_an
 ### PREPARE METADATA
 rownames(DESeq_analysis$metadata) <- as.character(DESeq_analysis$metadata[[1]])
 
+DESeq_analysis$metadata$dex_muscle_v_treatment <- as.character(DESeq_analysis$metadata$dex_muscle_v_treatment)
+DESeq_analysis$metadata$dex_muscle_v_treatment[DESeq_analysis$metadata$dex_muscle_v_treatment == ''] <- NA
+DESeq_analysis$metadata$dex_muscle_v_treatment <- as.factor(DESeq_analysis$metadata$dex_muscle_v_treatment)
+
+
 ### All categorical variables should be factors I think! Control group needs to be the first factor. This can be set using relevel ###
 DESeq_analysis$metadata$group <- relevel(DESeq_analysis$metadata$group, ref = "anemia")
-
 
 
 ### READ DATA FILES
@@ -61,7 +96,7 @@ DESeq_analysis$freq_reorder <- purrr::map(
     
     as.data.frame(freq_data$data[, rownames(DESeq_analysis$metadata)])
   })
-
+### !!! what about F5?
 ### PREPARE DATA FOR DESEQ ###
 ##############################
 
@@ -75,7 +110,7 @@ DESeq_analysis$freq_reorder <- purrr::map(
 DESeq_analysis$deseq_data <- purrr::map(
   .x = DESeq_analysis$freq_reorder,
   .f = function(freq_data){
-
+    
     
     
     temp <- purrr::map(
@@ -83,14 +118,31 @@ DESeq_analysis$deseq_data <- purrr::map(
       .f = function(formula_){
         
         if (all(colnames(freq_data) == rownames(DESeq_analysis$metadata))) {
-          DESeq2::DESeqDataSetFromMatrix(
-            countData = freq_data,
-            colData = DESeq_analysis$metadata,
-            design = as.formula(formula_) )
+          
+          if (is.na(DESeq_analysis$sample_to_remove_for_formulas[[formula_]])) {
+            DESeq2::DESeqDataSetFromMatrix(
+              countData = freq_data,
+              colData = DESeq_analysis$metadata,
+              design = as.formula(formula_) )
+            
+          } else {
+            freq_data_filt <- subset(
+              freq_data, 
+              select = colnames(freq_data) %nin% DESeq_analysis$sample_to_remove_for_formulas[[formula_]][['sampleid']])
+            
+            metadata_filt <- subset(
+              DESeq_analysis$metadata, 
+              subset = DESeq_analysis$metadata[[names(DESeq_analysis$sample_to_remove_for_formulas[[formula_]])]] %nin% DESeq_analysis$sample_to_remove_for_formulas[[formula_]][['sampleid']])
+            
+            DESeq2::DESeqDataSetFromMatrix(
+              countData = freq_data_filt,
+              colData = metadata_filt,
+              design = as.formula(formula_) )
+          }
         }
       })
     names(temp) <- as.character(names(DESeq_analysis$formulas))
-
+    
     return(temp)
   })
 
@@ -123,7 +175,7 @@ DESeq_analysis$analysis <- purrr::map2(
             results <- DESeq2::results(DESeq_, contrast = contrast)
             
             results_df <- as.data.frame(results)
-            results_df$seqs <- rownames(results_df)
+            results_df[DESeq_analysis$seq_col_name] <- rownames(results_df)
             results_df <- merge(results_df, DESeq_analysis$tax_merged, by = DESeq_analysis$seq_col_name, all.x = T)
             results_df$formula <- formula_expected_name
             results_df$dataset <- dataset_name
@@ -177,7 +229,7 @@ DESeq_analysis$asv_centered$merged_group_data <- purrr::map2(
         contrasts_ <- wrapper_get_all_values_for_seqences(
           list_of_original_datasets = DESeq_analysis$freq_reorder,
           df_with_sequences = contrasts_,
-          df_with_sequences_sequence_colname = 'seqs')
+          df_with_sequences_sequence_colname = DESeq_analysis$seq_col_name) ### !!! tu zmieniłem z "seqs"
         contrasts_ <- unique(dplyr::select(contrasts_, -dataset))
 
         return(contrasts_)
@@ -203,7 +255,7 @@ DESeq_analysis$asv_centered$taxonomic_data_for_visualization <- purrr::map2(
           contrast_$full_name[[row]] <- paste(contrast_[row,8:14], collapse = '__')
         }
         
-        return( dplyr::select(contrast_, 1, 18:27) )
+        return( dplyr::select(contrast_, DESeq_analysis$seq_col_name, 18:27) ) 
       })    
   }) 
 
@@ -219,8 +271,10 @@ DESeq_analysis$asv_centered$taxonomic_data_for_visualization <- purrr::map2(
 #############################
 ### TAX CENTERED ANALYSIS ###
 
+DESeq_analysis$tax_centered_levels_to_select_seq <- seq(2, 7)
+
 DESeq_analysis$tax_centered <- purrr::map(
-  .x = seq(2, 7),
+  .x = DESeq_analysis$tax_centered_levels_to_select_seq,
   .f = function(level){
     
     tax_centered_analysis <- DESeq_analysis$analysis[stringr::str_detect(string = names(DESeq_analysis$analysis), pattern = DESeq_analysis$freq_tax_patt)]
@@ -230,7 +284,7 @@ DESeq_analysis$tax_centered <- purrr::map(
       pattern = paste0('^lev_', as.character(level)))]
     
   })
-names(DESeq_analysis$tax_centered) <- as.character(seq(2, 7))
+names(DESeq_analysis$tax_centered) <- as.character(DESeq_analysis$tax_centered_levels_to_select_seq)
 
 
 
@@ -280,11 +334,91 @@ DESeq_analysis$tax_centered$merged_group_data <- purrr::map2(
 #############################
 
 
-
-
-
-
-
+# DESeq_analysis$asv_centered$merged_group_data
+# DESeq_analysis$tax_centered$merged_group_data
+# purrr::walk2(
+#   .x = DESeq_analysis$asv_centered$merged_group_data, 
+#   .y = names(DESeq_analysis$asv_centered$merged_group_data), 
+#   .f = function(comparison, comp_name){
+#     
+#     
+#     
+#     purrr::walk2(
+#       .x = comparison, 
+#       .y = names(comparison), 
+#       .f = function(level, level_name){
+#         
+#         write.table(x = level, file = paste0('deseq2_', comp_name, '_', level_name, '.tsv'), sep = '\t', dec = ',', quote = F, row.names = F)
+#       })
+#   })
 
 
 # plotCounts - for extracting single genes for visualization (ggplot) i think?
+
+
+######################
+### VISUALIZE DATA ###
+
+library(ggplot2)
+
+dir.create('deseq_diff')
+
+
+
+temp_df <- DESeq_analysis[["asv_centered"]][["merged_group_data"]][["~mother + group"]][["synomag"]]
+
+temp_comp <- 'mother group _ synomag'
+
+dir.create(paste0('deseq_diff/', temp_comp))
+
+
+for (row in seq_along(temp_df[[1]])) {
+  
+  if (!is.na(temp_df$padj[[row]]) & temp_df$padj[[row]] < 0.05) {
+    
+    temp_seq_row <- temp_df[row,]
+    
+    temp_seq_vals <- temp_df[row,c(18:50)]
+    
+    temp_ggplot <- as.data.frame(t(temp_seq_vals))
+    temp_ggplot$names <- rownames(temp_ggplot)
+    temp_ggplot$counts <- temp_ggplot[[1]]
+    temp_ggplot[[1]] <- NULL
+    
+    
+    temp_name <- paste(as.character(temp_seq_row[8:14]), collapse = '_')
+    
+    meta_color <- subset(x = metadata_analysis$metadata, subset = metadata_analysis$metadata$SampleID != 'F5')
+    
+    ggplot(temp_ggplot, aes(y = counts, x = names, colour = meta_color$group)) + 
+      geom_point() +
+      xlab(temp_name) +
+      labs(title = temp_comp)
+    
+    
+    ggsave(filename = paste0('deseq_diff/', temp_comp, '/', temp_name, '.png'), width = 9.6, height = 5.7)
+  }
+}
+
+
+# View(DESeq_analysis[["tax_centered"]][["merged_group_data"]][["~mother + group"]][["dextran_oral"]][["3"]])
+### VISUALIZE DATA ###
+######################
+
+
+
+
+### MOŻE JESZCZE ZRÓB BATCH CORRECTED DATA DO WIZUALIZACJI ###
+
+
+
+
+
+
+
+
+
+
+
+
+
