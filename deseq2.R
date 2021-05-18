@@ -363,7 +363,7 @@ library(ggplot2)
 
 dir.create('deseq_diff')
 
-
+# View(DESeq_analysis[["asv_centered"]][["merged_group_data"]][["~mother + group"]][["dextran_muscle"]])
 
 temp_df <- DESeq_analysis[["asv_centered"]][["merged_group_data"]][["~mother + group"]][["synomag"]]
 
@@ -404,21 +404,4 @@ for (row in seq_along(temp_df[[1]])) {
 # View(DESeq_analysis[["tax_centered"]][["merged_group_data"]][["~mother + group"]][["dextran_oral"]][["3"]])
 ### VISUALIZE DATA ###
 ######################
-
-
-
-
-### MOŻE JESZCZE ZRÓB BATCH CORRECTED DATA DO WIZUALIZACJI ###
-
-
-
-
-
-
-
-
-
-
-
-
 

@@ -319,12 +319,6 @@ get_nice_results_from_lrt_deseq2 <- function(results_lrt, phyloseq_object)
   
   lrt_df_signif_full_tidy_metadata$full_name <- stringr::str_remove(string = lrt_df_signif_full_tidy_metadata$full_name, pattern = '^d__')
   
-  # openxlsx::write.xlsx(
-  #   x = subset(
-  #     x = lrt_df_signif_full, 
-  #     subset = lrt_df_signif_full$pvalue <0.05),
-  #   file = 'diff_abund_significant_asvs.xlsx')
-  
   return(list('lrt_df_signif_full' = lrt_df_signif_full, 'lrt_df_signif_full_tidy_metadata' = lrt_df_signif_full_tidy_metadata))
   
 }

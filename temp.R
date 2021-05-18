@@ -1,16 +1,31 @@
-phyloseq$datasets$group_effect_rm_dada2$deseq <- purrr::map(
-  .x = list('mother' = 'mother', 'cluster' = 'cluster'), 
-  .f = function(factor){
+
+phyloseq$muscleDextran$deseq_tax_muscleDextran <- purrr::map(
+  .x = list('Phylum' = 'Phylum', 'Class' = 'Class', 'Order' = 'Order', 'Family' = 'Family', 'Genus' = 'Genus', 'Species' = 'Species'), 
+  .f = function(taxon_level){
+    glom_ <- phyloseq::tax_glom(physeq = phyloseq[["datasets"]][["dada2"]][["phylo_filtered"]], taxrank = taxon_level)
     
-    matrix <- phyloseq::phyloseq_to_deseq2(
-      physeq = phyloseq$datasets$group_effect_rm_dada2$phylo_filtered,
-      design = as.formula(paste0('~ ', factor)))
+    matrix_ <- phyloseq::phyloseq_to_deseq2(
+      physeq = glom_,
+      design = ~mother + group)
     
-    deseq <- DESeq2::DESeq(matrix, test = "LRT", reduced = ~ 1)
+    deseq_ <- DESeq2::DESeq(matrix_, test = "Wald")
     
-    lrt <- DESeq2::results(deseq)
+    lrt_ <- DESeq2::results(deseq_, contrast = c('group', 'fe_dextran_muscle', 'anemia'))
     
-    results <- get_nice_results_from_lrt_deseq2(results_lrt = lrt, phyloseq_object = phyloseq[["datasets"]][["group_effect_rm_dada2"]][["phylo_filtered"]])
+    if (length(lrt_[[1]]) == 0) {
+      return('result' = NA)
+    }
     
-    return(list('matrix' = matrix, 'deseq' = deseq, 'lrt' = lrt, 'results' = results))
+    result_ = cbind(as(lrt_, "data.frame"), as(phyloseq::tax_table(glom_)[rownames(lrt_), ], "matrix"))
+    
+    openxlsx::addWorksheet(
+      wb = phyloseq$muscleDextran$deseq_wb, 
+      sheetName = paste0(taxon_level, "_", factor))
+    
+    openxlsx::writeDataTable(
+      wb = phyloseq$muscleDextran$deseq_wb, 
+      sheet = paste0(taxon_level, "_", factor),
+      x = subset(result_, subset = result_$pvalue <0.05))
+    
+    return('result' = result_)
   })

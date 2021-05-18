@@ -83,7 +83,6 @@ phyloseq$datasets$deblur <- list(
   'alpha' = list(
     'shannon' = divnet_analysis$alpha_from_server$shannon$deblur,
     'simpson' = divnet_analysis$alpha_from_server$simpson$deblur)
-  
 )
 
 ### LOAD DATA ###
@@ -247,10 +246,8 @@ openxlsx::write.xlsx(x = temp_list, file = 'diversity_statistics.xlsx', rowNames
 
 
 
-
-
-##################################
-### GET  DIFFERENTIATING GENES ###
+########################################
+### GET MOTHER DIFFERENTIATING GENES ###
 
 library(phyloseq)
 phyloseq$datasets$group_effect_rm_dada2$phylo_filtered <- metagMisc::phyloseq_filter_prevalence(
@@ -259,8 +256,10 @@ phyloseq$datasets$group_effect_rm_dada2$phylo_filtered <- metagMisc::phyloseq_fi
   abund.trh = 10,
   threshold_condition = 'AND')
 
+phyloseq$datasets$group_effect_rm_dada2$deseq_wb <- openxlsx::createWorkbook()
+
 phyloseq$datasets$group_effect_rm_dada2$deseq <- purrr::map(
-  .x = list('mother' = 'mother', 'cluster' = 'cluster'), 
+  .x = list('mother' = 'mother'), 
   .f = function(factor){
     
     matrix <- phyloseq::phyloseq_to_deseq2(
@@ -271,46 +270,313 @@ phyloseq$datasets$group_effect_rm_dada2$deseq <- purrr::map(
     
     lrt <- DESeq2::results(deseq)
     
-    results <- get_nice_results_from_lrt_deseq2(results_lrt = lrt, phyloseq_object = phyloseq[["datasets"]][["group_effect_rm_dada2"]][["phylo_filtered"]])
+    results <- get_nice_results_from_lrt_deseq2(
+      results_lrt = lrt, 
+      phyloseq_object = phyloseq[["datasets"]][["group_effect_rm_dada2"]][["phylo_filtered"]])
+    
+    openxlsx::addWorksheet(
+      wb = phyloseq$datasets$group_effect_rm_dada2$deseq_wb, 
+      sheetName = paste0("ASV_", factor))
+    
+    openxlsx::writeDataTable(
+      wb = phyloseq$datasets$group_effect_rm_dada2$deseq_wb, 
+      sheet = paste0("ASV_", factor),
+      x = subset(results$lrt_df_signif_full, subset = results$lrt_df_signif_full$pvalue <0.05))
     
     return(list('matrix' = matrix, 'deseq' = deseq, 'lrt' = lrt, 'results' = results))
   })
 
 
 
-phyloseq$datasets$group_effect_rm_dada2$deseq_tax_cluster <- purrr::map(
+phyloseq$datasets$group_effect_rm_dada2$deseq_tax <- purrr::map(
   .x = list('Phylum' = 'Phylum', 'Class' = 'Class', 'Order' = 'Order', 'Family' = 'Family', 'Genus' = 'Genus', 'Species' = 'Species'), 
   .f = function(taxon_level){
+    
     glom_ <- phyloseq::tax_glom(physeq = phyloseq$datasets$group_effect_rm_dada2$phylo_filtered, taxrank = taxon_level)
-  
-    matrix_ <- phyloseq::phyloseq_to_deseq2(
-      physeq = glom_,
-      design = ~ cluster)
     
-    deseq_ <- DESeq2::DESeq(matrix_, test = "LRT", reduced = ~ 1)
+    return_ <- purrr::map(
+      .x = list('mother' = 'mother'), 
+      .f = function(factor){
+        
+        matrix_ <- phyloseq::phyloseq_to_deseq2(
+          physeq = glom_,
+          design = as.formula(paste0("~ ", factor)))
+        
+        deseq_ <- DESeq2::DESeq(matrix_, test = "LRT", reduced = ~ 1)
+        
+        lrt_ <- DESeq2::results(deseq_)
+        
+        result_ = lrt_[which(lrt_$padj < 0.05), ]
+        
+        if (length(result_[[1]]) == 0) {
+          return('result' = NA)
+        }
+        
+        result_ = cbind(as(result_, "data.frame"), as(phyloseq::tax_table(glom_)[rownames(result_), ], "matrix"))
+        
+        openxlsx::addWorksheet(
+          wb = phyloseq$datasets$group_effect_rm_dada2$deseq_wb, 
+          sheetName = paste0(taxon_level, "_", factor))
+        
+        openxlsx::writeDataTable(
+          wb = phyloseq$datasets$group_effect_rm_dada2$deseq_wb, 
+          sheet = paste0(taxon_level, "_", factor),
+          x = subset(result_, subset = result_$pvalue <0.05))
+        
+        return('result' = result_)
+      })
     
-    lrt_ <- DESeq2::results(deseq_)
-    
-    result_ = lrt_[which(lrt_$padj < 0.05), ]
-    result_ = cbind(as(result_, "data.frame"), as(tax_table(glom_)[rownames(result_), ], "matrix"))
-    
-    return('result' = result_)
+    return(return_)
 })
+
+openxlsx::saveWorkbook(
+  wb = phyloseq$datasets$group_effect_rm_dada2$deseq_wb,
+  file = "mother_diff_abund.xlsx",
+  overwrite = T)
 
 ### https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#pvaluesNA
 ###https://support.bioconductor.org/p/73172/#78824
-### GET  DIFFERENTIATING GENES ###
-##################################
-
-
-###########################################
-### DRAW CLUSTERS DIFFERENTIATING GENES ###
+### GET MOTHER DIFFERENTIATING GENES ###
+########################################
 
 
 
+####################################################
+### GET DIFFERENTIATING GENES FOR MUSCLE DEXTRAN ###
 
-### DRAW CLUSTERS DIFFERENTIATING GENES ###
-###########################################
+phyloseq$muscleDextran$deseq_wb <- openxlsx::createWorkbook()
+
+phyloseq$muscleDextran$deseq <- get_nice_results_from_lrt_deseq2(
+  results_lrt = DESeq_analysis[["analysis"]][["filtered_dada2.FeatureTableFrequency.qza"]][["~mother + group"]][["contrasts"]][["dextran_muscle"]][["results"]], 
+  phyloseq_object = phyloseq[["datasets"]][["dada2"]][["phylo_filtered"]])
+
+openxlsx::addWorksheet(
+  wb = phyloseq$muscleDextran$deseq_wb, 
+  sheetName = "ASV_muscleDextran")
+
+openxlsx::writeDataTable(
+  wb = phyloseq$muscleDextran$deseq_wb, 
+  sheet = "ASV_muscleDextran",
+  x = subset(phyloseq$muscleDextran$deseq$lrt_df_signif_full, subset = phyloseq$muscleDextran$deseq$lrt_df_signif_full$pvalue <0.05))
+
+
+
+phyloseq$muscleDextran$deseq_tax_muscleDextran <- purrr::map(
+  .x = list('Phylum' = 'Phylum', 'Class' = 'Class', 'Order' = 'Order', 'Family' = 'Family', 'Genus' = 'Genus', 'Species' = 'Species'), 
+  .f = function(taxon_level){
+    glom_ <- phyloseq::tax_glom(physeq = phyloseq[["datasets"]][["dada2"]][["phylo_filtered"]], taxrank = taxon_level)
+    
+    matrix_ <- phyloseq::phyloseq_to_deseq2(
+      physeq = glom_,
+      design = ~mother + group)
+    
+    deseq_ <- DESeq2::DESeq(matrix_, test = "Wald")
+    
+    lrt_ <- DESeq2::results(deseq_, contrast = c('group', 'fe_dextran_muscle', 'anemia'))
+    
+    if (length(lrt_[[1]]) == 0) {
+      return('result' = NA)
+    }
+    
+    result_ = cbind(as(lrt_, "data.frame"), as(phyloseq::tax_table(glom_)[rownames(lrt_), ], "matrix"))
+    
+    openxlsx::addWorksheet(
+      wb = phyloseq$muscleDextran$deseq_wb, 
+      sheetName = paste0(taxon_level))
+    
+    openxlsx::writeDataTable(
+      wb = phyloseq$muscleDextran$deseq_wb, 
+      sheet = paste0(taxon_level),
+      x = subset(result_, subset = result_$pvalue <0.05))
+    
+    return('result' = result_)
+  })
+
+openxlsx::saveWorkbook(
+  wb = phyloseq$muscleDextran$deseq_wb,
+  file = "muscleDextran_diff_abund.xlsx",
+  overwrite = T)
+
+### GET DIFFERENTIATING GENES FOR MUSCLE DEXTRAN ###
+####################################################
+
+
+
+
+
+########################
+### CLUSTER ANALYSIS ###
+phyloseq$cluster_analysis <- list()
+
+phyloseq$cluster_analysis$wb <- openxlsx::createWorkbook()
+
+
+
+phyloseq$cluster_analysis$adonis <- vegan::adonis(phyloseq$deicode$input$dada2$data ~ phyloseq::sample_data(phyloseq$datasets$dada2$phylo)$cluster)
+
+phyloseq$cluster_analysis$permadisp <- anova(
+  vegan::betadisper(
+    d = phyloseq$deicode$input$dada2$data, 
+    group = phyloseq::sample_data(phyloseq$datasets$dada2$phylo)$cluster)
+)
+
+openxlsx::addWorksheet(
+  wb = phyloseq$cluster_analysis$wb, 
+  sheetName = "permanova")
+
+openxlsx::writeDataTable(
+  wb = phyloseq$cluster_analysis$wb, 
+  sheet = "permanova",
+  x = phyloseq$cluster_analysis$adonis$aov.tab, )
+
+openxlsx::writeDataTable(
+  wb = phyloseq$cluster_analysis$wb, 
+  sheet = "permanova",
+  x =  phyloseq$cluster_analysis$permadisp,
+  startRow = 10)
+
+
+
+library(phyloseq)
+phyloseq$datasets$dada2$phylo_filtered <- metagMisc::phyloseq_filter_prevalence(
+  physeq = phyloseq$datasets$dada2$phylo, 
+  prev.trh = 0.33,
+  abund.trh = 10,
+  threshold_condition = 'AND')
+
+phyloseq$cluster_analysis$matrix <- phyloseq::phyloseq_to_deseq2(
+  physeq = phyloseq$datasets$dada2$phylo_filtered,
+  design = ~ cluster)
+
+phyloseq$cluster_analysis$deseq <- DESeq2::DESeq(phyloseq$cluster_analysis$matrix, test = "Wald")
+
+phyloseq$cluster_analysis$resultRawer <- DESeq2::results(phyloseq$cluster_analysis$deseq, contrast = c("cluster", "L", "S"))
+
+phyloseq$cluster_analysis$results <- get_nice_results_from_lrt_deseq2(
+  results_lrt = phyloseq$cluster_analysis$resultRawer, 
+  phyloseq_object = phyloseq[["datasets"]][["dada2"]][["phylo_filtered"]])
+
+phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full"]] <- subset(
+  x = phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full"]], 
+  subset = phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full"]]$padj < 0.05)
+
+phyloseq[["cluster_analysis"]][["results"]]$lrt_df_signif_full_tidy_metadata <- subset(
+  x = phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full_tidy_metadata"]], 
+  subset = phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full_tidy_metadata"]]$padj < 0.05)
+
+openxlsx::addWorksheet(
+  wb = phyloseq$cluster_analysis$wb, 
+  sheetName = "ASV")
+
+openxlsx::writeDataTable(
+  wb = phyloseq$cluster_analysis$wb, 
+  sheet = "ASV",
+  x = phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full"]])
+
+
+phyloseq[["cluster_analysis"]]$deseq_tax_cluster  <- purrr::map(
+  .x = list('Phylum' = 'Phylum', 'Class' = 'Class', 'Order' = 'Order', 'Family' = 'Family', 'Genus' = 'Genus', 'Species' = 'Species'), 
+  .f = function(taxon_level){
+    glom_ <- phyloseq::tax_glom(physeq = phyloseq[["datasets"]][["dada2"]][["phylo_filtered"]], taxrank = taxon_level)
+    
+    matrix_ <- phyloseq::phyloseq_to_deseq2(
+      physeq = glom_,
+      design = ~cluster)
+    
+    deseq_ <- DESeq2::DESeq(matrix_, test = "Wald")
+    
+    lrt_ <- DESeq2::results(deseq_, contrast = c("cluster", "L", "S"))
+    
+    if (length(lrt_[[1]]) == 0) {
+      return('result' = NA)
+    }
+    
+    result_ = cbind(as(lrt_, "data.frame"), as(phyloseq::tax_table(glom_)[rownames(lrt_), ], "matrix"))
+    
+    openxlsx::addWorksheet(
+      wb = phyloseq$cluster_analysis$wb, 
+      sheetName = paste0(taxon_level))
+    
+    openxlsx::writeDataTable(
+      wb = phyloseq$cluster_analysis$wb, 
+      sheet = paste0(taxon_level),
+      x = subset(result_, subset = result_$pvalue <0.05))
+    
+    return('result' = result_)
+  })
+
+openxlsx::saveWorkbook(
+  wb = phyloseq$cluster_analysis$wb,
+  file = "cluster_analysis.xlsx",
+  overwrite = T)
+
+
+
+
+temp_order <- phyloseq::sample_data(phyloseq$datasets$dada2$phylo_filtered)[order(phyloseq::sample_data(phyloseq$datasets$dada2$phylo_filtered)$cluster),]
+
+temp_phylo <- phyloseq::subset_taxa(physeq = phyloseq::tax_glom(physeq = phyloseq$datasets$dada2$phylo_filtered, taxrank = "Phylum"), Phylum %in% c("Fusobacteriota", "Synergistota", "Bacteroidota", "Proteobacteria", "Spirochaetota"))
+
+phyloseq::plot_heatmap(
+  physeq =  temp_phylo,
+  taxa.label = "Phylum",
+  sample.order = temp_order$sample_id,
+  sample.label = "cluster")
+
+
+
+
+phyloseq$cluster_analysis$clustering <- hclust(
+  phyloseq$deicode$input$dada2$data, 
+  method = "average") ### Average would be better i think
+
+temp_clustering_data <- ggdendro::dendro_data(phyloseq$cluster_analysis$clustering, type = "rectangle")
+
+temp_for_drawing <- phyloseq[["cluster_analysis"]][["results"]]$lrt_df_signif_full_tidy_metadata
+
+temp_for_drawing$frequency <-temp_for_drawing$frequency + 1
+
+temp_for_drawing$order_in_clust <- as.factor(
+  as.numeric(
+    recode_values_based_on_key(
+      to_recode_chrvec = temp_for_drawing$sample,
+      replace_this_chrvec = phyloseq$cluster_analysis$clustering$labels$sample,
+      with_this_chrvec = phyloseq$cluster_analysis$clustering$labels$x)))
+
+temp_for_drawing$sample <- factor(
+  x = temp_for_drawing$sample, 
+  levels = phyloseq$cluster_analysis$clustering$labels$sample)
+
+ggplot(
+  data = temp_for_drawing,
+  mapping = aes(x = paste0(cluster, "__", sample), y = full_name, fill = log(frequency))) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, face = 'bold'))
+
+
+
+
+phyloseq::plot_ordination(
+  physeq = phyloseq$datasets$dada2$phylo,
+  ordination = phyloseq::ordinate(physeq = phyloseq$datasets$dada2$phylo, method = "PCoA", distance = "jaccard"),
+  color = 'cluster') 
+
+# temp <- phyloseq::prune_taxa(names(sort(phyloseq::taxa_sums(phyloseq$datasets$dada2$phylo_filtered), TRUE))[1:500], phyloseq$datasets$dada2$phylo_filtered)
+# 
+# phyloseq::plot_heatmap(
+#   physeq = temp,
+#   sample.label = 'cluster',
+#   sample.order = 'cluster')
+
+### CLUSTER ANALYSIS ###
+########################
+
+
+
+
+
+
 
 
 
@@ -342,7 +608,7 @@ ggdendrogram_ <- ggdendro::ggdendrogram(temp_clustering_data) +
 
 
 
-phyloseq$datasets$group_effect_rm_dada2$deseq$for_heatmap <- phyloseq$datasets$group_effect_rm_dada2$deseq$lrt_df_signif_full_tidy_metadata
+phyloseq$datasets$group_effect_rm_dada2$deseq$for_heatmap <- phyloseq$datasets$group_effect_rm_dada2$deseq$mother$results$lrt_df_signif_full_tidy_metadata ### tu było wcześniej phyloseq$datasets$group_effect_rm_dada2$deseq$lrt_df_signif_full_tidy_metadata
 
 phyloseq$datasets$group_effect_rm_dada2$deseq$for_heatmap$frequency <-phyloseq$datasets$group_effect_rm_dada2$deseq$for_heatmap$frequency + 1
 
@@ -397,6 +663,9 @@ phyloseq::plot_ordination(
   ggpubr::stat_chull(aes(fill = mother), geom = "polygon", alpha = 0.05)
 
   
+phyloseq::plot_bar(phyloseq::tax_glom(physeq = phyloseq$datasets$dada2$phylo, taxrank = "Phylum"), fill="Phylum")
+
+
 
 
 # metagMisc::shepard_plot(
@@ -750,95 +1019,7 @@ phyloseq$no_5142_17$adonis <- vegan::adonis(phyloseq$no_5142_17$deicode$data ~ p
 
 
 
-########################
-### CLUSTER ANALYSIS ###
-phyloseq$cluster_analysis <- list()
-phyloseq$cluster_analysis$adonis <- vegan::adonis(phyloseq$deicode$input$dada2$data ~ phyloseq::sample_data(phyloseq$datasets$dada2$phylo)$cluster)
 
-phyloseq$cluster_analysis$permadisp <- anova(
-      vegan::betadisper(
-        d = phyloseq$deicode$input$dada2$data, 
-        group = phyloseq::sample_data(phyloseq$datasets$dada2$phylo)$cluster)
-    )
-
-
-
-library(phyloseq)
-phyloseq$datasets$dada2$phylo_filtered <- metagMisc::phyloseq_filter_prevalence(
-  physeq = phyloseq$datasets$dada2$phylo, 
-  prev.trh = 0.33,
-  abund.trh = 10,
-  threshold_condition = 'AND')
-
-phyloseq$cluster_analysis$matrix <- phyloseq::phyloseq_to_deseq2(
-  physeq = phyloseq$datasets$dada2$phylo_filtered,
-  design = ~ cluster)
-    
-phyloseq$cluster_analysis$deseq <- DESeq2::DESeq(phyloseq$cluster_analysis$matrix, test = "LRT", reduced = ~ 1)
-
-phyloseq$cluster_analysis$lrt <- DESeq2::results(phyloseq$cluster_analysis$deseq)
-
-phyloseq$cluster_analysis$results <- get_nice_results_from_lrt_deseq2(results_lrt = phyloseq$cluster_analysis$lrt, phyloseq_object = phyloseq[["datasets"]][["dada2"]][["phylo_filtered"]])
-
-phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full"]] <- subset(
-  x = phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full"]], 
-  subset = phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full"]]$padj < 0.05)
-
-phyloseq[["cluster_analysis"]][["results"]]$lrt_df_signif_full_tidy_metadata <- subset(
-  x = phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full_tidy_metadata"]], 
-  subset = phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full_tidy_metadata"]]$padj < 0.05)
-
-openxlsx::write.xlsx(x = list('adonis' = phyloseq$cluster_analysis$adonis$aov.tab, 'permadisp' = phyloseq$cluster_analysis$permadisp, 'DA' = phyloseq[["cluster_analysis"]][["results"]][["lrt_df_signif_full"]]), file = 'cluster_analysis.xlsx')
-
-
-
-
-phyloseq$cluster_analysis$clustering <- hclust(
-  phyloseq$deicode$input$dada2$data, 
-  method = "average") ### Average would be better i think
-
-temp_clustering_data <- ggdendro::dendro_data(phyloseq$cluster_analysis$clustering, type = "rectangle")
-
-temp_for_drawing <- phyloseq[["cluster_analysis"]][["results"]]$lrt_df_signif_full_tidy_metadata
-
-temp_for_drawing$frequency <-temp_for_drawing$frequency + 1
-
-temp_for_drawing$order_in_clust <- as.factor(
-  as.numeric(
-    recode_values_based_on_key(
-      to_recode_chrvec = temp_for_drawing$sample,
-      replace_this_chrvec = phyloseq$cluster_analysis$clustering$labels$sample,
-      with_this_chrvec = phyloseq$cluster_analysis$clustering$labels$x)))
-
-temp_for_drawing$sample <- factor(
-  x = temp_for_drawing$sample, 
-  levels = phyloseq$cluster_analysis$clustering$labels$sample)
-
-ggplot(
-  data = temp_for_drawing,
-  mapping = aes(x = paste0(cluster, "__", sample), y = full_name, fill = log(frequency))) +
-  geom_tile() +
-  scale_fill_gradient(low = "white", high = "steelblue") +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, face = 'bold'))
-
-
-
-
-phyloseq::plot_ordination(
-  physeq = phyloseq$datasets$dada2$phylo,
-  ordination = phyloseq::ordinate(physeq = phyloseq$datasets$dada2$phylo, method = "PCoA", distance = "jaccard"),
-  color = 'cluster') 
-
-# temp <- phyloseq::prune_taxa(names(sort(phyloseq::taxa_sums(phyloseq$datasets$dada2$phylo_filtered), TRUE))[1:500], phyloseq$datasets$dada2$phylo_filtered)
-# 
-# phyloseq::plot_heatmap(
-#   physeq = temp,
-#   sample.label = 'cluster',
-#   sample.order = 'cluster')
-
-
-### CLUSTER ANALYSIS ###
-########################
 
 
 
@@ -1064,13 +1245,13 @@ divnet_analysis_2$b_c_raw <- qiime2R::read_qza('/home/adrian/Desktop/qiime/full_
 
 
 
+######################################
+## ADDITIONAL FROM DESEQ2 ANALYSIS ###
 
 
 
-
-
-
-
+## ADDITIONAL FROM DESEQ2 ANALYSIS ###
+######################################
 
 
 
